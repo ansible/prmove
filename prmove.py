@@ -183,8 +183,8 @@ class Mover(object):
         try:
             upstream = clone.create_remote('upstream', upstream_url)
         except GitCommandError as e:
-            raise Exception('Failed to add origin to clone of ansible/ansible repository:'
-                            '\n%s\n%s' % (e.stdout, e.stderr)) from e
+            raise Exception('Failed to add upstream to clone of %s repository:'
+                            '\n%s\n%s' % (user_repo, e.stdout, e.stderr)) from e
 
         try:
             if requests.get(origin_url).status_code != 200:
