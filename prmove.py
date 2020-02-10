@@ -164,6 +164,7 @@ class Mover(object):
     def clone_repo(self):
         clone_dir = '%s/repo' % self.working_dir
         origin_url = 'https://%s@github.com/%s/%s.git' % (self.token, self.username, self.target_repo)
+        upstream_url = 'https://github.com/%s/%s.git' % (self.upstream_account, self.target_repo)
 
         user_repo = '%s/%s' % (self.username, self.target_repo)
 
@@ -180,6 +181,12 @@ class Mover(object):
                             '\n%s\n%s' % (user_repo, e.stdout, e.stderr)) from e
 
         try:
+            upstream = clone.create_remote('upstream', upstream_url)
+        except GitCommandError as e:
+            raise Exception('Failed to add origin to clone of ansible/ansible repository:'
+                            '\n%s\n%s' % (e.stdout, e.stderr)) from e
+
+        try:
             if requests.get(origin_url).status_code != 200:
                 raise Exception('You must have a fork of %s at: %s' % (user_repo, self.username, self.target_repo, origin_url))
         except GitCommandError as e:
@@ -187,7 +194,8 @@ class Mover(object):
                             '\n%s\n%s' % (e.stdout, e.stderr)) from e
 
         try:
-            clone.git.checkout(b=self.branch_name)
+            upstream.fetch()
+            clone.git.checkout('upstream/%s' % clone.active_branch.name, b=self.branch_name)
         except GitCommandError as e:
             raise Exception('Failed to create new branch:'
                             '\n%s\n%s' % (e.stdout, e.stderr)) from e
