@@ -11,8 +11,15 @@
                         <div>
                             <h2>Migrate a Pull Request</h2>
                             <form action="" method="post">
-                                <p class="help-block">Supply the full URL to the pull request you want to migrate. Such as https://github.com/ansible/ansible-modules-core/pull/1234</p>
+                                <p class="help-block">Supply the full URL to the pull request you want to migrate. Such as https://github.com/ansible/ansible/pull/1234</p>
                                 <p><input type="text" id="prurl" name="prurl" class="form-control mono" value=""></p>
+                                <p class="help-block">Supply the full URL to the repository where this PR is to be migrated. Such as https://github.com/ansible-collections/dumping_ground</p>
+                                <p><input type="text" id="repo" name="repo" class="form-control mono" value=""></p>
+                                <p>
+                                    <label>
+                                        <input type="checkbox" id="keepdirs" name="keepdirs" value="1"> Keep directory hierarchy? Only necessary for community.general
+                                    </label>
+                                </p>
                                 <p>
                                     <label>
                                         <input type="checkbox" id="closeorig" name="closeorig" value="1"> Close Original Pull Request?

@@ -16,6 +16,7 @@
 #    under the License.
 
 import re
+import os
 import json
 import shutil
 import logging
@@ -33,10 +34,20 @@ from flask import (Flask, Markup, session, request, url_for, redirect, flash,
 
 GITHUB_API_BASE = 'https://api.github.com'
 
-DIFF_GIT_RE = re.compile(r'^(diff --git a/)([^ ]+ b/)([^ ]+)$', re.M)
-STAT_RE = re.compile(r'^(\s+)([^ ]+\s+\|\s+\d+\s+[+-]+)$', re.M)
-MINUS_PLUS_RE = re.compile(r'^((?:-|\+){3} [ab]/)(.+)$', re.M)
+DIFF_GIT_RE = re.compile(r'^(diff --git a/)([^ ]+) b/([^ ]+)$', re.M)
 
+PLUGINS_RE = re.compile(r'.*/(plugins|modules|module_utils)/(.+)/(.+)$')
+
+# This regex makes sure that a file in a PR can be migrated
+# docs/
+# test/
+# changelog/
+# lib/ansible/plugins/
+# lib/ansible/modules/
+# lib/ansible/module_utils/
+VALID_FILE = re.compile(
+    r'^(lib/ansible/(plugins|modules|module_utils)|test|changelogs|docs)/'
+)
 
 app = Flask('prmove')
 app.config.from_envvar('PRMOVE_CONFIG')
@@ -47,16 +58,21 @@ LOG = logging.getLogger('prmove')
 
 
 class Mover(object):
-    def __init__(self, token, username, pr_url, close_original=False):
+    def __init__(self, token, username, pr_url, repo, close_original=False,
+                 keepdirs=False):
         self.username = username
         self.token = token
         self.pr_url = pr_url.rstrip('/')
+        self.repo = repo.rstrip('/')
         self.close_original = close_original
-        self.upstream_dir = app.config['UPSTREAM_DIR']
-        self.upstream_account = None
+        self.keepdirs = keepdirs
         self.upstream_branch = None
 
         self.urlparts = urllib.parse.urlparse(self.pr_url)
+        self.repo_parts = urllib.parse.urlparse(self.repo)
+
+        self.target_repo = os.path.basename(self.repo_parts.path)
+        self.upstream_account = os.path.basename(os.path.dirname(self.repo_parts.path))
 
         self.branch_name = self.urlparts.path.split('/', 2)[-1]
         self.patch = None
@@ -74,7 +90,7 @@ class Mover(object):
             'access_token': self.token
         }
 
-        url = '%s/repos/%s/ansible/branches/%s' % (GITHUB_API_BASE, self.username, self.branch_name)
+        url = '%s/repos/%s/%s/branches/%s' % (GITHUB_API_BASE, self.username, self.target_repo, self.branch_name)
 
         r = requests.get(url, params=params)
 
@@ -105,51 +121,67 @@ class Mover(object):
         r.raise_for_status()
         self.patch = r.text
 
-        self.patch = DIFF_GIT_RE.sub(
-            r'\1lib/ansible/modules/\2lib/ansible/modules/\3',
-            self.patch
-        )
-        self.patch = STAT_RE.sub(r'\1lib/ansible/modules/\2', self.patch)
-        self.patch = MINUS_PLUS_RE.sub(r'\1lib/ansible/modules/\2', self.patch)
+
+        changes = set()
+        for m in DIFF_GIT_RE.finditer(self.patch):
+            line = m.group(0)
+            path = m.group(3)
+
+            if not VALID_FILE.search(path):
+                raise Exception('Invalid path for a collection: %s' % path)
+
+            plugin_match = PLUGINS_RE.search(path)
+            if plugin_match:
+                path_list = ['plugins']
+                is_module = plugin_match.group(1) in ('modules', 'module_utils')
+                if is_module:
+                    path_list.append(plugin_match.group(1))
+                else:
+                    path_list.append(plugin_match.group(2))
+                if self.keepdirs and is_module:
+                    path_list.append(plugin_match.group(2))
+                path_list.append(plugin_match.group(3))
+                new_path = '/'.join(path_list)
+                changes.add((path, new_path))
+            else:
+                if path.startswith('test/'):
+                    new_path = re.sub('^test/', 'tests/', path)
+                else:
+                    new_path = path
+                changes.add((path, new_path))
+
+        for change in changes:
+            if change[0] == change[1]:
+                continue
+
+            self.patch = re.sub(re.escape(change[0]), change[1], self.patch)
 
         with open('%s/patch.patch' % self.working_dir, 'w+') as f:
             f.write(self.patch)
 
         return self.patch
 
-    def clone_ansible(self):
-        clone_dir = '%s/ansible' % self.working_dir
-        origin_url = 'https://%s@github.com/%s/ansible.git' % (self.token, self.username)
+    def clone_repo(self):
+        clone_dir = '%s/repo' % self.working_dir
+        origin_url = 'https://%s@github.com/%s/%s.git' % (self.token, self.username, self.target_repo)
 
-        shutil.copytree(self.upstream_dir, clone_dir, symlinks=True)
-
-        try:
-            clone = Repo(clone_dir)
-        except GitCommandError as e:
-            raise Exception('Failed to open clone of ansible/ansible repository:',
-                            '\n%s\n%s' % (e.stdout, e.stderr)) from e
+        user_repo = '%s/%s' % (self.username, self.target_repo)
 
         try:
-            self.upstream_account = urllib.parse.urlparse(list(clone.remote('upstream').urls)[0]).path.split('/')[1]
+            clone = Repo.clone_from(origin_url, clone_dir)
         except GitCommandError as e:
-            raise Exception('Failed to get upstream from ansible/ansible repository:',
-                            '\n%s\n%s' % (e.stdout, e.stderr)) from e
+            raise Exception('Failed to open clone of %s repository:',
+                            '\n%s\n%s' % (user_repo, e.stdout, e.stderr)) from e
 
         try:
             self.upstream_branch = clone.active_branch.name
         except GitCommandError as e:
-            raise Exception('Failed to get active branch from ansible/ansible repository:',
-                            '\n%s\n%s' % (e.stdout, e.stderr)) from e
-
-        try:
-            clone.create_remote('origin', origin_url)
-        except GitCommandError as e:
-            raise Exception('Failed to add origin to clone of ansible/ansible repository:'
-                            '\n%s\n%s' % (e.stdout, e.stderr)) from e
+            raise Exception('Failed to get active branch from %s repository:',
+                            '\n%s\n%s' % (user_repo, e.stdout, e.stderr)) from e
 
         try:
             if requests.get(origin_url).status_code != 200:
-                raise Exception('You must have a fork of ansible/ansible at: %s' % origin_url)
+                raise Exception('You must have a fork of %s at: %s' % (user_repo, self.username, self.target_repo, origin_url))
         except GitCommandError as e:
             raise Exception('Failed to verify origin exists:'
                             '\n%s\n%s' % (e.stdout, e.stderr)) from e
@@ -184,8 +216,7 @@ class Mover(object):
             'base': self.upstream_branch,
         }
 
-        url = '%s/repos/%s/ansible/pulls' % (GITHUB_API_BASE, self.upstream_account)
-
+        url = '%s/repos/%s/%s/pulls' % (GITHUB_API_BASE, self.upstream_account, self.target_repo)
         r = requests.post(url, data=json.dumps(data), params=params)
         r.raise_for_status()
 
@@ -299,9 +330,11 @@ def move():
 
 def move_post():
     pr_url = request.form.get('prurl')
+    repo = request.form.get('repo')
+    keepdirs = request.form.get('keepdirs')
     close_original = request.form.get('closeorig')
 
-    with Mover(session['token'], session['login'], pr_url, close_original == '1') as mover:
+    with Mover(session['token'], session['login'], pr_url, repo, close_original == '1', keepdirs == '1') as mover:
         mover.check_already_migrated()
 
         try:
@@ -325,7 +358,7 @@ def move_post():
                             (pr_url, session['login'], e)) from e
 
         try:
-            mover.clone_ansible()
+            mover.clone_repo()
         except Exception as e:
             raise Exception('Failure handling git repository (%s) for %s: %s' %
                             (pr_url, session['login'], e)) from e
