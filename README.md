@@ -8,16 +8,7 @@ GitHub Pull Request Mover, specifically for the Ansible repo consolidation
 GITHUB_CLIENT_ID = '1ecad3b34f7b437db6d0'
 GITHUB_CLIENT_SECRET = '6689ba85bb024d1b97370c45f1316a16d08bba20'
 SECRET_KEY = '\\{\x86m\x01\xc7\xe6\xa1\x19\x93\xe3F\xf5\x192)\x87k0\xdd\xcb\x1d\x10%'
-UPSTREAM_DIR = '/path/to/clone/of/ansible/ansible/merged/devel/branch'
 ```
-
-### Upstream Repository Clone
-
-The path defined by `UPSTREAM_DIR` must:
-
-- Be a clone of the `ansible` repository to which pull requests will be submitted.
-- Have the default remote renamed from `origin` to `upstream`.
-- Been merged with the module repositories using the `hacking/unify_repos.sh` script from `ansible/ansible`.
 
 ### GitHub credentials
 
