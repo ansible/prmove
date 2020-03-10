@@ -35,6 +35,10 @@ If you run this on multiple servers, make sure this value matches across all ser
 1. `. prmove/bin/activate`
 1. `pip install -r requirements.txt`
 
+### CLI
+
+`cli.py` still requires all of the above requirements, including flask, but won't actually use them. I'm lazy what can I say?
+
 ### Development
 
 Running via flask for development:
