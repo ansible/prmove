@@ -59,7 +59,7 @@ LOG = logging.getLogger('prmove')
 
 class Mover(object):
     def __init__(self, token, username, pr_url, repo, close_original=False,
-                 keepdirs=False):
+                 keepdirs=False, webapp=True):
         self.username = username
         self.token = token
         self.pr_url = pr_url.rstrip('/')
@@ -85,14 +85,25 @@ class Mover(object):
         self.original_pull_request = None
         self.is_migration_by_owner = None
 
+        self.webapp = webapp
+
+    def _headers_params(self):
+        params = {}
+        headers = {}
+        if self.webapp:
+            params['access_token'] = self.token
+        else:
+            headers['Authorization'] = 'token %s' % self.token
+
+        return params, headers
+
     def check_already_migrated(self):
-        params = {
-            'access_token': self.token
-        }
+
+        params, headers = self._headers_params()
 
         url = '%s/repos/%s/%s/branches/%s' % (GITHUB_API_BASE, self.username, self.target_repo, self.branch_name)
 
-        r = requests.get(url, params=params)
+        r = requests.get(url, params=params, headers=headers)
 
         if r.status_code == 404:
             return
@@ -104,11 +115,9 @@ class Mover(object):
         r.raise_for_status()
 
     def get_original_pull_request(self):
-        params = {
-            'access_token': self.token
-        }
+        params, headers = self._headers_params()
 
-        r = requests.get(self.original_pull_request_url, params=params)
+        r = requests.get(self.original_pull_request_url, params=params, headers=headers)
         r.raise_for_status()
         self.original_pull_request = r.json()
         self.mergeable_state = self.original_pull_request['mergeable_state']
@@ -213,9 +222,7 @@ class Mover(object):
                             '\n%s\n%s' % (e.stdout, e.stderr)) from e
 
     def create_pull_request(self):
-        params = {
-            'access_token': self.token
-        }
+        params, headers = self._headers_params()
 
         data = {
             'title': self.original_pull_request['title'],
@@ -225,7 +232,7 @@ class Mover(object):
         }
 
         url = '%s/repos/%s/%s/pulls' % (GITHUB_API_BASE, self.upstream_account, self.target_repo)
-        r = requests.post(url, data=json.dumps(data), params=params)
+        r = requests.post(url, data=json.dumps(data), params=params, headers=headers)
         r.raise_for_status()
 
         pull = r.json()
@@ -238,7 +245,7 @@ class Mover(object):
             comment['body'] += ' by %s (not original author)' % self.username
 
         r = requests.post(pull['comments_url'], data=json.dumps(comment),
-                          params=params)
+                          params=params, headers=headers)
         r.raise_for_status()
 
         return pull
@@ -247,15 +254,13 @@ class Mover(object):
         if not self.close_original:
             return None
 
-        params = {
-            'access_token': self.token
-        }
+        params, headers = self._headers_params()
 
         data = {
             'state': 'closed'
         }
 
-        r = requests.post(self.original_pull_request_url, data=json.dumps(data), params=params)
+        r = requests.post(self.original_pull_request_url, data=json.dumps(data), params=params, headers=headers)
         r.raise_for_status()
 
     def __enter__(self):
@@ -336,20 +341,23 @@ def move():
     return render_template('move.html')
 
 
-def move_post():
-    pr_url = request.form.get('prurl')
-    repo = request.form.get('repo')
-    keepdirs = request.form.get('keepdirs')
-    close_original = request.form.get('closeorig')
+def move_post(token=None, login=None, pr_url=None, repo=None,
+              close_original=None, keepdirs=None):
+    pr_url = pr_url or request.form.get('prurl')
+    repo = repo or request.form.get('repo')
+    keepdirs = keepdirs or request.form.get('keepdirs') == '1'
+    close_original = close_original or request.form.get('closeorig') == '1'
+    token = token or session['token']
+    login = login or session['login']
 
-    with Mover(session['token'], session['login'], pr_url, repo, close_original == '1', keepdirs == '1') as mover:
+    with Mover(token, login, pr_url, repo, close_original, keepdirs) as mover:
         mover.check_already_migrated()
 
         try:
             mover.get_original_pull_request()
         except Exception as e:
             raise Exception('Failure validating pull request (%s) for %s: %s' %
-                            (pr_url, session['login'], e)) from e
+                            (pr_url, login, e)) from e
 
         if mover.mergeable_state == 'dirty':
             raise MarkupException('Please rebase your branch and update your PR before migrating. '
@@ -363,19 +371,19 @@ def move_post():
             mover.get_patch()
         except Exception as e:
             raise Exception('Failure getting patch (%s) for %s: %s' %
-                            (pr_url, session['login'], e)) from e
+                            (pr_url, login, e)) from e
 
         try:
             mover.clone_repo()
         except Exception as e:
             raise Exception('Failure handling git repository (%s) for %s: %s' %
-                            (pr_url, session['login'], e)) from e
+                            (pr_url, login, e)) from e
 
         try:
             pull = mover.create_pull_request()
         except Exception as e:
             raise Exception('Failure creating pull request (%s) for %s: %s' %
-                            (pr_url, session['login'], e)) from e
+                            (pr_url, login, e)) from e
 
         flash(
             Markup('Your pull request has been migrated to '
@@ -387,7 +395,7 @@ def move_post():
             mover.close_original_pull_request()
         except Exception as e:
             raise Exception('Failure closing original pull request (%s) for %s: %s' %
-                            (pr_url, session['login'], e)) from e
+                            (pr_url, login, e)) from e
 
 
 class MarkupException(Exception):
