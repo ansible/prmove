@@ -359,14 +359,6 @@ def move_post(token=None, login=None, pr_url=None, repo=None,
             raise Exception('Failure validating pull request (%s) for %s: %s' %
                             (pr_url, login, e)) from e
 
-        # if mover.mergeable_state == 'dirty':
-        #     raise MarkupException('Please rebase your branch and update your PR before migrating. '
-        #                           'Tests will fail for your old PR after rebasing. '
-        #                           'This is expected and can be ignored. '
-        #                           'For more information please consult the <a href="'
-        #                           'http://docs.ansible.com/ansible/dev_guide/repomerge.html#move-issues-and-prs-to-new-repo'
-        #                           '">repo merge</a> documentation. ')
-
         try:
             mover.get_patch()
         except Exception as e:
