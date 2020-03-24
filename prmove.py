@@ -71,8 +71,8 @@ class Mover(object):
         self.urlparts = urllib.parse.urlparse(self.pr_url)
         self.repo_parts = urllib.parse.urlparse(self.repo)
 
-        self.target_repo = os.path.basename(self.repo_parts.path)
-        self.upstream_account = os.path.basename(os.path.dirname(self.repo_parts.path))
+        self.target_repo = self.repo_parts.path.split('/')[2]
+        self.upstream_account = self.repo_parts.path.split('/')[1]
 
         self.branch_name = self.urlparts.path.split('/', 2)[-1]
         self.patch = None
@@ -347,8 +347,8 @@ def move_post(token=None, login=None, pr_url=None, repo=None,
     repo = repo or request.form.get('repo')
     keepdirs = keepdirs or request.form.get('keepdirs') == '1'
     close_original = close_original or request.form.get('closeorig') == '1'
-    token = token or session['token']
-    login = login or session['login']
+    token = token or session.get('token')
+    login = login or session.get('login')
 
     with Mover(token, login, pr_url, repo, close_original, keepdirs) as mover:
         mover.check_already_migrated()
@@ -359,13 +359,13 @@ def move_post(token=None, login=None, pr_url=None, repo=None,
             raise Exception('Failure validating pull request (%s) for %s: %s' %
                             (pr_url, login, e)) from e
 
-        if mover.mergeable_state == 'dirty':
-            raise MarkupException('Please rebase your branch and update your PR before migrating. '
-                                  'Tests will fail for your old PR after rebasing. '
-                                  'This is expected and can be ignored. '
-                                  'For more information please consult the <a href="'
-                                  'http://docs.ansible.com/ansible/dev_guide/repomerge.html#move-issues-and-prs-to-new-repo'
-                                  '">repo merge</a> documentation. ')
+        # if mover.mergeable_state == 'dirty':
+        #     raise MarkupException('Please rebase your branch and update your PR before migrating. '
+        #                           'Tests will fail for your old PR after rebasing. '
+        #                           'This is expected and can be ignored. '
+        #                           'For more information please consult the <a href="'
+        #                           'http://docs.ansible.com/ansible/dev_guide/repomerge.html#move-issues-and-prs-to-new-repo'
+        #                           '">repo merge</a> documentation. ')
 
         try:
             mover.get_patch()

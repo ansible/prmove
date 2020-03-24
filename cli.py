@@ -18,8 +18,7 @@
 import argparse
 import os
 
-from prmove import move_post
-
+from prmove import app, move_post
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--token', default=os.getenv('GITHUB_TOKEN'),
@@ -32,8 +31,9 @@ parser.add_argument('--keepdirs', action='store_true',
                     help='Keep module sub directories')
 parser.add_argument('pull_request', help='Pull Request URL')
 parser.add_argument('repo', help='Target Repo')
-args = parse.parse_args()
+args = parser.parse_args()
 
 
-move_post(args.token, args.login, args.pull_request, args.repo,
-          args.close, args.keepdirs)
+with app.test_request_context():
+    move_post(args.token, args.login, args.pull_request, args.repo,
+              args.close, args.keepdirs)
