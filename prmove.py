@@ -50,7 +50,11 @@ VALID_FILE = re.compile(
 )
 
 app = Flask('prmove')
-app.config.from_envvar('PRMOVE_CONFIG')
+try:
+    app.config.from_envvar('PRMOVE_CONFIG')
+except Exception:
+    app.config['GITHUB_CLIENT_ID'] = ''
+    app.config['GITHUB_CLIENT_SECRET'] = ''
 github = GitHub(app)
 sslify = SSLify(app)
 
