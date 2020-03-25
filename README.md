@@ -39,6 +39,12 @@ If you run this on multiple servers, make sure this value matches across all ser
 
 `cli.py` still requires all of the above requirements, including flask, but won't actually use them. I'm lazy what can I say?
 
+```
+python cli.py --login sivel --token GITHUB_TOKEN https://github.com/ansible/ansible/pull/65973 https://github.com/ansible-collections/ansible.posix
+```
+
+`--login` can be supplied via `GITHUB_LOGIN` env var, and `GITHUB_TOKEN` for `--token`. A github token can be obtained from https://github.com/settings/tokens
+
 ### Development
 
 Running via flask for development:
